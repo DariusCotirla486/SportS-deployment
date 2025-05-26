@@ -1,34 +1,4 @@
-import { Pool } from 'pg';
-
-const config = {
-    user: 'postgres',
-    password: 'darius', // Replace with your actual password
-    host: 'localhost',
-    database: 'EquipmentStore',
-    port: 5432,
-};
-
-// Create a connection pool
-const pool = new Pool(config);
-
-// Add error handler to the pool
-pool.on('error', (err) => {
-    console.error('Unexpected error on idle client', err);
-    process.exit(-1);
-});
-
-// Export a function to get the pool
-export async function getConnection() {
-    try {
-        // Test the connection
-        const client = await pool.connect();
-        client.release();
-        return pool;
-    } catch (error) {
-        console.error('Error connecting to the database:', error);
-        throw new Error('Failed to connect to the database. Please check if PostgreSQL is running and the credentials are correct.');
-    }
-}
+import { supabase } from './supabase';
 
 export interface SportEquipment {
     id: string;
@@ -42,6 +12,20 @@ export interface SportEquipment {
     imageUrl: string;
 }
 
+// Export a function to get the database connection
+export async function getConnection() {
+    try {
+        // Test the connection by making a simple query
+        const { data, error } = await supabase.from('items').select('id').limit(1);
+        if (error) throw error;
+        return supabase;
+    } catch (error) {
+        console.error('Error connecting to the database:', error);
+        throw new Error('Failed to connect to the database. Please check your Supabase configuration.');
+    }
+}
+
+// Sample data for development/testing
 export const equipment: SportEquipment[] = [
     {
         id: '1',

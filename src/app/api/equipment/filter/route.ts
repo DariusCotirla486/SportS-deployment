@@ -1,21 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getConnection } from '@/lib/db';
+import { supabase } from '@/lib/supabase';
 
 // Helper function to add CORS headers
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Accept',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
 }
 
 // Handle OPTIONS requests for CORS preflight
 export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: corsHeaders(),
-  });
+  return NextResponse.json({}, { headers: corsHeaders() });
 }
 
 // POST filter equipment
@@ -28,54 +25,35 @@ export async function POST(request: NextRequest) {
       throw new Error('Invalid request body');
     }
 
-    const pool = await getConnection();
-    console.log('Database connection established');
+    let query = supabase
+      .from('items')
+      .select(`
+        *,
+        item_categories(name),
+        item_stock(quantity)
+      `);
 
-    // Convert sort order to match the function's expected format
-    let sortOrder = 'none';
-    if (data.sort_by === 'price') {
-      sortOrder = data.sort_order === 'asc' ? 'low-high' : 'high-low';
-    }
-
-    // Validate category_id if provided
-    let categoryId = null;
     if (data.category_id) {
-      try {
-        // Validate UUID format
-        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.category_id)) {
-          throw new Error('Invalid category_id format');
-        }
-        categoryId = data.category_id;
-      } catch (error) {
-        console.error('Invalid category_id:', error);
-        throw new Error('Invalid category_id format');
-      }
+      query = query.eq('category_id', data.category_id);
     }
 
-    console.log('Executing query with params:', { category_id: categoryId, sortOrder });
-
-    try {
-      // Call the PostgreSQL function
-      const result = await pool.query(
-        'SELECT * FROM get_filtered_items($1, $2)',
-        [categoryId, sortOrder]
-      );
-
-      console.log('Query executed successfully, rows returned:', result.rows.length);
-
-      // Convert dates to ISO strings and ensure price is a number
-      const formattedRows = result.rows.map(row => ({
-        ...row,
-        price: Number(row.price), // Convert price to number
-        created_at: row.created_at.toISOString(),
-        updated_at: row.updated_at.toISOString()
-      }));
-
-      return NextResponse.json(formattedRows, { headers: corsHeaders() });
-    } catch (dbError) {
-      console.error('Database query error:', dbError);
-      throw new Error(`Database query failed: ${dbError instanceof Error ? dbError.message : 'Unknown error'}`);
+    if (data.sort_by === 'price') {
+      query = query.order('price', { ascending: data.sort_order === 'asc' });
+    } else {
+      query = query.order('created_at', { ascending: false });
     }
+
+    const { data: items, error } = await query;
+
+    if (error) throw error;
+
+    const formattedItems = items.map(item => ({
+      ...item,
+      category_name: item.item_categories?.name,
+      quantity: item.item_stock?.[0]?.quantity || 0
+    }));
+
+    return NextResponse.json(formattedItems, { headers: corsHeaders() });
   } catch (error) {
     console.error('Error filtering items:', error);
     return NextResponse.json(
